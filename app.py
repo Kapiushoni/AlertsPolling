@@ -61,7 +61,7 @@ def background_worker():
         )
 
         # Отправка в n8n (раскомментируйте, когда будет готов вебхук)
-        # requests.post("ВАШ_WEBHOOK_N8N", json=current_data)
+        requests.post("https://alexn8n12345.app.n8n.cloud/webhook/air-alert", json=current_data)
 
         last_data = current_data
         save_state(last_data)

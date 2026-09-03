@@ -13,7 +13,6 @@ CHECK_INTERVAL = 15
 STATE_FILE = "last_state.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
-# ЗАМЕНИТЕ НА ВАШ PRODUCTION URL (без слова -test)
 N8N_WEBHOOK_URL = "https://alexn8n12345.app.n8n.cloud/webhook/air-alert"
 
 
@@ -45,11 +44,13 @@ def fetch_alerts():
     print(f"[!] Исключение при запросе к API: {e}")
   return None
 
+
 def background_worker():
   print("[*] Фоновый монитор alerts.in.ua запущен...")
   last_data = load_last_state()
 
   while True:
+    print("[*] Цикл проверки запущен...")
     current_data = fetch_alerts()
 
     if current_data:
@@ -57,9 +58,7 @@ def background_worker():
           f"[*] Отправка данных в n8n... Время:"
           f" {time.strftime('%Y-%m-%d %H:%M:%S')}"
       )
-
       try:
-        # Отправляем данные на вебхук n8n при каждом цикле
         response = requests.post(
             N8N_WEBHOOK_URL, json=current_data, timeout=10
         )
@@ -67,11 +66,15 @@ def background_worker():
       except Exception as e:
         print(f"[!] Ошибка отправки в n8n: {e}")
 
-      # Сохраняем состояние
       last_data = current_data
       save_state(last_data)
 
     time.sleep(CHECK_INTERVAL)
+
+
+# Запускаем поток сразу при старте модуля (чтобы Gunicorn его тоже подхватил)
+t = threading.Thread(target=background_worker, daemon=True)
+t.start()
 
 
 @app.route("/")
@@ -80,8 +83,5 @@ def home():
 
 
 if __name__ == "__main__":
-  t = threading.Thread(target=background_worker, daemon=True)
-  t.start()
-
   port = int(os.environ.get("PORT", 10000))
   app.run(host="0.0.0.0", port=port)

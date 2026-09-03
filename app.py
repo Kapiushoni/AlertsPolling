@@ -33,38 +33,40 @@ def save_state(state):
 
 def fetch_alerts():
   try:
-    print(f"[*] Запрос к API с токеном: {API_TOKEN[:5]}...")
+    token_preview = API_TOKEN[:5] if API_TOKEN else "None"
+    print(f"[*] Запрос к API с токеном: {token_preview}...", flush=True)
     response = requests.get(API_URL, headers=HEADERS, timeout=10)
-    print(f"[*] Статус ответа API alerts.in.ua: {response.status_code}")
+    print(f"[*] Статус ответа API alerts.in.ua: {response.status_code}", flush=True)
     if response.status_code == 200:
       return response.json()
     else:
-      print(f"[!] Ошибка API текст: {response.text}")
+      print(f"[!] Ошибка API текст: {response.text}", flush=True)
   except Exception as e:
-    print(f"[!] Исключение при запросе к API: {e}")
+    print(f"[!] Исключение при запросе к API: {e}", flush=True)
   return None
 
 
 def background_worker():
-  print("[*] Фоновый монитор alerts.in.ua запущен...")
+  print("[*] Фоновый монитор alerts.in.ua запущен...", flush=True)
   last_data = load_last_state()
 
   while True:
-    print("[*] Цикл проверки запущен...")
+    print("[*] Цикл проверки запущен...", flush=True)
     current_data = fetch_alerts()
 
     if current_data:
       print(
           f"[*] Отправка данных в n8n... Время:"
-          f" {time.strftime('%Y-%m-%d %H:%M:%S')}"
+          f" {time.strftime('%Y-%m-%d %H:%M:%S')}",
+          flush=True,
       )
       try:
         response = requests.post(
             N8N_WEBHOOK_URL, json=current_data, timeout=10
         )
-        print(f"[*] Ответ от n8n: {response.status_code}")
+        print(f"[*] Ответ от n8n: {response.status_code}", flush=True)
       except Exception as e:
-        print(f"[!] Ошибка отправки в n8n: {e}")
+        print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
 
       last_data = current_data
       save_state(last_data)
@@ -72,7 +74,6 @@ def background_worker():
     time.sleep(CHECK_INTERVAL)
 
 
-# Запускаем поток сразу при старте модуля (чтобы Gunicorn его тоже подхватил)
 t = threading.Thread(target=background_worker, daemon=True)
 t.start()
 

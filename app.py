@@ -34,20 +34,18 @@ def save_state(state):
 
 def fetch_alerts():
   try:
+    print(
+        f"[*] Запрос к API с токеном: {API_TOKEN[:5]}..."
+    )  к (покажет первые символы токена)
     response = requests.get(API_URL, headers=HEADERS, timeout=10)
+    print(f"[*] Статус ответа API alerts.in.ua: {response.status_code}")
     if response.status_code == 200:
       return response.json()
-    elif response.status_code == 429:
-      print(
-          "[!] Превышен лимит запросов (Rate Limit). Ждем перед повтором..."
-      )
-      time.sleep(30)
     else:
-      print(f"[!] Ошибка API: {response.status_code} - {response.text}")
-  except requests.exceptions.RequestException as e:
-    print(f"[!] Ошибка сети: {e}")
+      print(f"[!] Ошибка API текст: {response.text}")
+  except Exception as e:
+    print(f"[!] Исключение при запросе к API: {e}")
   return None
-
 
 def background_worker():
   print("[*] Фоновый монитор alerts.in.ua запущен...")

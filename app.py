@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 import time
@@ -7,11 +8,8 @@ from flask import Flask
 app = Flask(__name__)
 
 API_URL = "https://api.alerts.in.ua/v1/iot/active_air_raids.json"
-API_TOKEN = "9139f148cd5916303816f2f716b658fb1e00267fab2203"  # Замените на ваш токен
+API_TOKEN = os.environ.get("ALERTS_API_TOKEN")
 CHECK_INTERVAL = 15
-# На Render локальный файл стирается при перезапуске,
-# но пока сервер живой, он будет работать в памяти/файле.
-# Для надежности можно будет подключить n8n для сверки, как обсуждали.
 STATE_FILE = "last_state.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
@@ -71,17 +69,14 @@ def background_worker():
     time.sleep(CHECK_INTERVAL)
 
 
-# Эндпоинт, чтобы Render понимал, что сайт живой
 @app.route("/")
 def home():
   return "Alerts Poller is running!", 200
 
 
 if __name__ == "__main__":
-  # Запускаем фоновый поток со скриптом
   t = threading.Thread(target=background_worker, daemon=True)
   t.start()
 
-  # Запускаем Flask-сервер (Render сам передает порт через переменную окружения PORT)
   port = int(os.environ.get("PORT", 10000))
   app.run(host="0.0.0.0", port=port)

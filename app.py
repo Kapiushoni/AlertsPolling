@@ -7,7 +7,7 @@ from flask import Flask
 
 app = Flask(__name__)
 
-API_URL = "https://api.alerts.in.ua/v1/iot/active_air_raids.json"
+API_URL = "https://api.alerts.in.ua/v1/alerts/active.json"
 API_TOKEN = os.environ.get("ALERTS_API_TOKEN")
 CHECK_INTERVAL = 15
 STATE_FILE = "last_state.json"

@@ -13,6 +13,9 @@ CHECK_INTERVAL = 15
 STATE_FILE = "last_state.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
+# ЗАМЕНИТЕ НА ВАШ PRODUCTION URL (без слова -test)
+N8N_WEBHOOK_URL = "https://alexn8n12345.app.n8n.cloud/webhook/air-alert"
+
 
 def load_last_state():
   if os.path.exists(STATE_FILE):
@@ -54,17 +57,23 @@ def background_worker():
     current_data = fetch_alerts()
 
     if current_data:
-      if current_data != last_data:
-        print(
-            f"[*] Статус изменился! Время:"
-            f" {time.strftime('%Y-%m-%d %H:%M:%S')}"
+      print(
+          f"[*] Отправка данных в n8n... Время:"
+          f" {time.strftime('%Y-%m-%d %H:%M:%S')}"
+      )
+
+      try:
+        # Отправляем данные на вебхук n8n при каждом цикле
+        response = requests.post(
+            N8N_WEBHOOK_URL, json=current_data, timeout=10
         )
+        print(f"[*] Ответ от n8n: {response.status_code}")
+      except Exception as e:
+        print(f"[!] Ошибка отправки в n8n: {e}")
 
-        # Отправка в n8n (раскомментируйте, когда будет готов вебхук)
-        requests.post("https://alexn8n12345.app.n8n.cloud/webhook-test/air-alert", json=current_data)
-
-        last_data = current_data
-        save_state(last_data)
+      # Сохраняем состояние
+      last_data = current_data
+      save_state(last_data)
 
     time.sleep(CHECK_INTERVAL)
 

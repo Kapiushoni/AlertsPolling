@@ -36,40 +36,109 @@ def fetch_alerts():
     response = requests.get(API_URL, headers=HEADERS, timeout=10)
     if response.status_code == 200:
       return response.json()
+    elif response.status_code == 429:
+      print("[!] Превышен лимит (429). Ждем 30 секунд...", flush=True)
+      time.sleep(30)
+      return None
     else:
-      print(f"[!] Ошибка API текст: {response.text}", flush=True)
+      print(
+          f"[!] Ошибка API статус {response.status_code}: {response.text}",
+          flush=True,
+      )
   except Exception as e:
     print(f"[!] Исключение при запросе к API: {e}", flush=True)
   return None
 
 
+def get_kyiv_active_alerts(raw_data):
+  """Возвращает словарь активных тревог Киевщины в формате {region_name: alert_info}"""
+  if not raw_data or "alerts" not in raw_data:
+    return {}
+
+  active_kyiv_alerts = {}
+  for item in raw_data["alerts"]:
+    if item.get("alert_type") == "air_raid" and item.get("finished_at") is None:
+      oblast = item.get("location_oblast") or ""
+      title = item.get("location_title") or ""
+
+      if "Київська область" in oblast or "Київська область" in title:
+        active_kyiv_alerts[title] = {
+            "region": title,
+            "type": item.get("location_type"),
+            "started_at": item.get("started_at"),
+        }
+
+  return active_kyiv_alerts
+
+
 def background_worker():
   print("[*] Фоновый монитор alerts.in.ua запущен...", flush=True)
-  last_data = load_last_state()
+  last_filtered_data = get_kyiv_active_alerts(load_last_state())
 
   while True:
-    current_data = fetch_alerts()
+    raw_data = fetch_alerts()
 
-    if current_data:
-      # Проверяем, изменились ли данные по сравнению с последним разом
-      if current_data != last_data:
+    if raw_data:
+      current_filtered_data = get_kyiv_active_alerts(raw_data)
+
+      if current_filtered_data != last_filtered_data:
         print(
-            f"[*] Статус изменился! Время:"
+            f"[*] Изменилась ситуация в Киевской области! Время:"
             f" {time.strftime('%Y-%m-%d %H:%M:%S')}",
             flush=True,
         )
-        try:
-          response = requests.post(
-              N8N_WEBHOOK_URL, json=current_data, timeout=10
-          )
-          print(f"[*] Ответ от n8n: {response.status_code}", flush=True)
-        except Exception as e:
-          print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
 
-        last_data = current_data
-        save_state(last_data)
+        # Вычисляем, где началась тревога, а где прошел отбой
+        last_regions = set(last_filtered_data.keys())
+        current_regions = set(current_filtered_data.keys())
+
+        started_regions = list(current_regions - last_regions)
+        ended_regions = list(last_regions - current_regions)
+
+        events = []
+
+        if started_regions:
+          events.append({
+              "status": "started",
+              "title": "🚨 Повітряна тривога!",
+              "regions": [current_filtered_data[r] for r in started_regions],
+          })
+
+        if ended_regions:
+          events.append({
+              "status": "ended",
+              "title": "✅ Відбій тривоги!",
+              "regions": [{"region": r} for r in ended_regions],
+          })
+
+        # Отправляем каждое событие в n8n
+        for event in events:
+          payload = {
+              "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+              "status": event["status"],
+              "event_title": event["title"],
+              "alerts": event["regions"],
+          }
+
+          try:
+            response = requests.post(
+                N8N_WEBHOOK_URL, json=payload, timeout=10
+            )
+            print(
+                f"[*] Отправлено в n8n ({event['status']}):"
+                f" {response.status_code}",
+                flush=True,
+            )
+          except Exception as e:
+            print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
+
+        last_filtered_data = current_filtered_data
+        save_state(raw_data)
       else:
-        print(f"[-] Изменений нет ({time.strftime('%H:%M:%S')})", flush=True)
+        print(
+            f"[-] Изменений по Киевщине нет ({time.strftime('%H:%M:%S')})",
+            flush=True,
+        )
 
     time.sleep(CHECK_INTERVAL)
 

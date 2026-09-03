@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 API_URL = "https://api.alerts.in.ua/v1/alerts/active.json"
 API_TOKEN = os.environ.get("ALERTS_API_TOKEN")
-CHECK_INTERVAL = 30
+CHECK_INTERVAL = 45
 STATE_FILE = "last_state.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 

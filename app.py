@@ -33,10 +33,7 @@ def save_state(state):
 
 def fetch_alerts():
   try:
-    token_preview = API_TOKEN[:5] if API_TOKEN else "None"
-    print(f"[*] Запрос к API с токеном: {token_preview}...", flush=True)
     response = requests.get(API_URL, headers=HEADERS, timeout=10)
-    print(f"[*] Статус ответа API alerts.in.ua: {response.status_code}", flush=True)
     if response.status_code == 200:
       return response.json()
     else:
@@ -51,25 +48,28 @@ def background_worker():
   last_data = load_last_state()
 
   while True:
-    print("[*] Цикл проверки запущен...", flush=True)
     current_data = fetch_alerts()
 
     if current_data:
-      print(
-          f"[*] Отправка данных в n8n... Время:"
-          f" {time.strftime('%Y-%m-%d %H:%M:%S')}",
-          flush=True,
-      )
-      try:
-        response = requests.post(
-            N8N_WEBHOOK_URL, json=current_data, timeout=10
+      # Проверяем, изменились ли данные по сравнению с последним разом
+      if current_data != last_data:
+        print(
+            f"[*] Статус изменился! Время:"
+            f" {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            flush=True,
         )
-        print(f"[*] Ответ от n8n: {response.status_code}", flush=True)
-      except Exception as e:
-        print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
+        try:
+          response = requests.post(
+              N8N_WEBHOOK_URL, json=current_data, timeout=10
+          )
+          print(f"[*] Ответ от n8n: {response.status_code}", flush=True)
+        except Exception as e:
+          print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
 
-      last_data = current_data
-      save_state(last_data)
+        last_data = current_data
+        save_state(last_data)
+      else:
+        print(f"[-] Изменений нет ({time.strftime('%H:%M:%S')})", flush=True)
 
     time.sleep(CHECK_INTERVAL)
 

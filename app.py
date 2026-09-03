@@ -34,9 +34,7 @@ def save_state(state):
 
 def fetch_alerts():
   try:
-    print(
-        f"[*] Запрос к API с токеном: {API_TOKEN[:5]}..."
-    )  к (покажет первые символы токена)
+    print(f"[*] Запрос к API с токеном: {API_TOKEN[:5]}...")
     response = requests.get(API_URL, headers=HEADERS, timeout=10)
     print(f"[*] Статус ответа API alerts.in.ua: {response.status_code}")
     if response.status_code == 200:

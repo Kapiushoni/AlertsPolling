@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import time
+import datetime
 import requests
 from flask import Flask
 
@@ -14,6 +15,11 @@ STATE_FILE = "last_state.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
 N8N_WEBHOOK_URL = "https://alexn8n12345.app.n8n.cloud/webhook/air-alert"
+
+
+def get_adjusted_time():
+  """Возвращает текущее время, смещенное вперед на 3 часа."""
+  return datetime.datetime.now() + datetime.timedelta(hours=3)
 
 
 def load_last_state():
@@ -82,9 +88,10 @@ def background_worker():
       current_filtered_data = get_kyiv_active_alerts(raw_data)
 
       if current_filtered_data != last_filtered_data:
+        current_time_str = get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')
         print(
             f"[*] Изменилась ситуация в Киевской области! Время:"
-            f" {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f" {current_time_str}",
             flush=True,
         )
 
@@ -114,7 +121,7 @@ def background_worker():
         # Отправляем каждое событие в n8n
         for event in events:
           payload = {
-              "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+              "timestamp": get_adjusted_time().strftime("%Y-%m-%d %H:%M:%S"),
               "status": event["status"],
               "event_title": event["title"],
               "alerts": event["regions"],
@@ -136,7 +143,7 @@ def background_worker():
         save_state(raw_data)
       else:
         print(
-            f"[-] Изменений по Киевщине нет ({time.strftime('%H:%M:%S')})",
+            f"[-] Изменений по Киевщине нет ({get_adjusted_time().strftime('%H:%M:%S')})",
             flush=True,
         )
 

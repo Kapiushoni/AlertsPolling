@@ -57,7 +57,7 @@ def fetch_alerts():
 
 
 def get_kyiv_active_alerts(raw_data):
-  """Возвращает словарь активных тревог Киевщины в формате {region_name: alert_info}"""
+  """Возвращает словарь активных тревог Киева и Киевщины в формате {region_name: alert_info}"""
   if not raw_data or "alerts" not in raw_data:
     return {}
 
@@ -67,7 +67,7 @@ def get_kyiv_active_alerts(raw_data):
       oblast = item.get("location_oblast") or ""
       title = item.get("location_title") or ""
 
-      if "Київська область" in oblast or "Київська область" in title:
+      if "Київська область" in oblast or "Київська область" in title or "м. Київ" in title:
         active_kyiv_alerts[title] = {
             "region": title,
             "type": item.get("location_type"),
@@ -90,12 +90,10 @@ def background_worker():
       if current_filtered_data != last_filtered_data:
         current_time_str = get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')
         print(
-            f"[*] Изменилась ситуация в Киевской области! Время:"
-            f" {current_time_str}",
+            f"[*] Изменилась ситуация в Киеве и Киевской области! Время: {current_time_str}",
             flush=True,
         )
 
-        # Вычисляем, где началась тревога, а где прошел отбой
         last_regions = set(last_filtered_data.keys())
         current_regions = set(current_filtered_data.keys())
 
@@ -118,7 +116,6 @@ def background_worker():
               "regions": [{"region": r} for r in ended_regions],
           })
 
-        # Отправляем каждое событие в n8n
         for event in events:
           payload = {
               "timestamp": get_adjusted_time().strftime("%Y-%m-%d %H:%M:%S"),
@@ -132,8 +129,7 @@ def background_worker():
                 N8N_WEBHOOK_URL, json=payload, timeout=10
             )
             print(
-                f"[*] Отправлено в n8n ({event['status']}):"
-                f" {response.status_code}",
+                f"[*] Отправлено в n8n ({event['status']}): {response.status_code}",
                 flush=True,
             )
           except Exception as e:
@@ -143,7 +139,7 @@ def background_worker():
         save_state(raw_data)
       else:
         print(
-            f"[-] Изменений по Киевщине нет ({get_adjusted_time().strftime('%H:%M:%S')})",
+            f"[-] Изменений по Киеву и области нет ({get_adjusted_time().strftime('%H:%M:%S')})",
             flush=True,
         )
 

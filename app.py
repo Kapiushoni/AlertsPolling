@@ -69,7 +69,7 @@ def get_kyiv_active_alerts(raw_data):
 
             if "Київська область" in oblast or "Київська область" in title or "м. Київ" in title:
                 
-                # --- НОВАЯ ЛОГИКА: Обработка уровня тревоги ---
+                # --- Обработка уровня тревоги ---
                 raw_level = item.get("alert_level")
                 if raw_level == "yellow":
                     level_display = "🟡 Желтый уровень"
@@ -80,17 +80,22 @@ def get_kyiv_active_alerts(raw_data):
                 else:
                     level_display = "⚪ Уровень не указан"
 
-                # --- НОВАЯ ЛОГИКА: Обработка типа угрозы ---
+                # --- Обработка типа угрозы согласно официальному enum ---
                 threats_data = item.get("threats", [])
                 threat_types = []
                 
-                # Словарь для перевода базовых типов угроз
+                # Точный маппинг из документации API
                 threat_mapping = {
+                    "tactic_aircraft_activity": "Активность тактической авиации",
+                    "strategic_aircraft_activity": "Активность стратегической авиации",
+                    "mig31k_departure": "Взлёт МиГ-31К",
+                    "ballistic_missiles": "Баллистические ракеты",
+                    "cruise_missiles": "Крылатые ракеты",
+                    "unspecified_missiles": "Ракеты",
                     "drones": "Дроны (БПЛА)",
-                    "missiles": "Ракеты",
-                    "artillery": "Артиллерия",
-                    "mlrs": "РСЗО",
-                    "tactical_aviation": "Тактическая авиация"
+                    "guided_aerial_bombs": "Управляемые авиабомбы (КАБ)",
+                    "air_defense": "Работа ПВО",
+                    "unknown": "Неизвестная угроза"
                 }
                 
                 for t in threats_data:
@@ -99,14 +104,15 @@ def get_kyiv_active_alerts(raw_data):
                         # Переводим, если есть в словаре, иначе оставляем как в API
                         threat_types.append(threat_mapping.get(ttype, ttype))
                 
+                # Если список угроз пустой, пишем, что угроза неизвестна
                 threats_display = ", ".join(threat_types) if threat_types else "Неизвестная угроза"
 
                 active_kyiv_alerts[title] = {
                     "region": title,
                     "type": item.get("location_type"),
                     "started_at": item.get("started_at"),
-                    "alert_level": level_display,  # Добавлено
-                    "threats": threats_display     # Добавлено
+                    "alert_level": level_display,
+                    "threats": threats_display
                 }
 
     return active_kyiv_alerts

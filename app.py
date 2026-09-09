@@ -18,132 +18,167 @@ N8N_WEBHOOK_URL = "https://alexn8n12345.app.n8n.cloud/webhook/air-alert"
 
 
 def get_adjusted_time():
-  """Возвращает текущее время, смещенное вперед на 3 часа."""
-  return datetime.datetime.now() + datetime.timedelta(hours=3)
+    """Возвращает текущее время, смещенное вперед на 3 часа."""
+    return datetime.datetime.now() + datetime.timedelta(hours=3)
 
 
 def load_last_state():
-  if os.path.exists(STATE_FILE):
-    try:
-      with open(STATE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-    except Exception:
-      return {}
-  return {}
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
 
 
 def save_state(state):
-  with open(STATE_FILE, "w", encoding="utf-8") as f:
-    json.dump(state, f, ensure_ascii=False, indent=2)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
 
 def fetch_alerts():
-  try:
-    response = requests.get(API_URL, headers=HEADERS, timeout=10)
-    if response.status_code == 200:
-      return response.json()
-    elif response.status_code == 429:
-      print("[!] Превышен лимит (429). Ждем 30 секунд...", flush=True)
-      time.sleep(30)
-      return None
-    else:
-      print(
-          f"[!] Ошибка API статус {response.status_code}: {response.text}",
-          flush=True,
-      )
-  except Exception as e:
-    print(f"[!] Исключение при запросе к API: {e}", flush=True)
-  return None
+    try:
+        response = requests.get(API_URL, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 429:
+            print("[!] Превышен лимит (429). Ждем 30 секунд...", flush=True)
+            time.sleep(30)
+            return None
+        else:
+            print(
+                f"[!] Ошибка API статус {response.status_code}: {response.text}",
+                flush=True,
+            )
+    except Exception as e:
+        print(f"[!] Исключение при запросе к API: {e}", flush=True)
+    return None
 
 
 def get_kyiv_active_alerts(raw_data):
-  """Возвращает словарь активных тревог Киева и Киевщины в формате {region_name: alert_info}"""
-  if not raw_data or "alerts" not in raw_data:
-    return {}
+    """Возвращает словарь активных тревог Киева и Киевщины в формате {region_name: alert_info}"""
+    if not raw_data or "alerts" not in raw_data:
+        return {}
 
-  active_kyiv_alerts = {}
-  for item in raw_data["alerts"]:
-    if item.get("alert_type") == "air_raid" and item.get("finished_at") is None:
-      oblast = item.get("location_oblast") or ""
-      title = item.get("location_title") or ""
+    active_kyiv_alerts = {}
+    for item in raw_data["alerts"]:
+        if item.get("alert_type") == "air_raid" and item.get("finished_at") is None:
+            oblast = item.get("location_oblast") or ""
+            title = item.get("location_title") or ""
 
-      if "Київська область" in oblast or "Київська область" in title or "м. Київ" in title:
-        active_kyiv_alerts[title] = {
-            "region": title,
-            "type": item.get("location_type"),
-            "started_at": item.get("started_at"),
-        }
+            if "Київська область" in oblast or "Київська область" in title or "м. Київ" in title:
+                
+                # --- НОВАЯ ЛОГИКА: Обработка уровня тревоги ---
+                raw_level = item.get("alert_level")
+                if raw_level == "yellow":
+                    level_display = "🟡 Желтый уровень"
+                elif raw_level == "red":
+                    level_display = "🔴 Красный уровень"
+                elif raw_level:
+                    level_display = f"⚪ {raw_level} уровень"
+                else:
+                    level_display = "⚪ Уровень не указан"
 
-  return active_kyiv_alerts
+                # --- НОВАЯ ЛОГИКА: Обработка типа угрозы ---
+                threats_data = item.get("threats", [])
+                threat_types = []
+                
+                # Словарь для перевода базовых типов угроз
+                threat_mapping = {
+                    "drones": "Дроны (БПЛА)",
+                    "missiles": "Ракеты",
+                    "artillery": "Артиллерия",
+                    "mlrs": "РСЗО",
+                    "tactical_aviation": "Тактическая авиация"
+                }
+                
+                for t in threats_data:
+                    ttype = t.get("threat_type")
+                    if ttype:
+                        # Переводим, если есть в словаре, иначе оставляем как в API
+                        threat_types.append(threat_mapping.get(ttype, ttype))
+                
+                threats_display = ", ".join(threat_types) if threat_types else "Неизвестная угроза"
+
+                active_kyiv_alerts[title] = {
+                    "region": title,
+                    "type": item.get("location_type"),
+                    "started_at": item.get("started_at"),
+                    "alert_level": level_display,  # Добавлено
+                    "threats": threats_display     # Добавлено
+                }
+
+    return active_kyiv_alerts
 
 
 def background_worker():
-  print("[*] Фоновый монитор alerts.in.ua запущен...", flush=True)
-  last_filtered_data = get_kyiv_active_alerts(load_last_state())
+    print("[*] Фоновый монитор alerts.in.ua запущен...", flush=True)
+    last_filtered_data = get_kyiv_active_alerts(load_last_state())
 
-  while True:
-    raw_data = fetch_alerts()
+    while True:
+        raw_data = fetch_alerts()
 
-    if raw_data:
-      current_filtered_data = get_kyiv_active_alerts(raw_data)
+        if raw_data:
+            current_filtered_data = get_kyiv_active_alerts(raw_data)
 
-      if current_filtered_data != last_filtered_data:
-        current_time_str = get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')
-        print(
-            f"[*] Изменилась ситуация в Киеве и Киевской области! Время: {current_time_str}",
-            flush=True,
-        )
+            if current_filtered_data != last_filtered_data:
+                current_time_str = get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')
+                print(
+                    f"[*] Изменилась ситуация в Киеве и Киевской области! Время: {current_time_str}",
+                    flush=True,
+                )
 
-        last_regions = set(last_filtered_data.keys())
-        current_regions = set(current_filtered_data.keys())
+                last_regions = set(last_filtered_data.keys())
+                current_regions = set(current_filtered_data.keys())
 
-        started_regions = list(current_regions - last_regions)
-        ended_regions = list(last_regions - current_regions)
+                started_regions = list(current_regions - last_regions)
+                ended_regions = list(last_regions - current_regions)
 
-        events = []
+                events = []
 
-        if started_regions:
-          events.append({
-              "status": "started",
-              "title": "🚨 Повітряна тривога!",
-              "regions": [current_filtered_data[r] for r in started_regions],
-          })
+                if started_regions:
+                    events.append({
+                        "status": "started",
+                        "title": "🚨 Повітряна тривога!",
+                        "regions": [current_filtered_data[r] for r in started_regions],
+                    })
 
-        if ended_regions:
-          events.append({
-              "status": "ended",
-              "title": "✅ Відбій тривоги!",
-              "regions": [{"region": r} for r in ended_regions],
-          })
+                if ended_regions:
+                    events.append({
+                        "status": "ended",
+                        "title": "✅ Відбій тривоги!",
+                        "regions": [{"region": r} for r in ended_regions],
+                    })
 
-        for event in events:
-          payload = {
-              "timestamp": get_adjusted_time().strftime("%Y-%m-%d %H:%M:%S"),
-              "status": event["status"],
-              "event_title": event["title"],
-              "alerts": event["regions"],
-          }
+                for event in events:
+                    payload = {
+                        "timestamp": get_adjusted_time().strftime("%Y-%m-%d %H:%M:%S"),
+                        "status": event["status"],
+                        "event_title": event["title"],
+                        "alerts": event["regions"],
+                    }
 
-          try:
-            response = requests.post(
-                N8N_WEBHOOK_URL, json=payload, timeout=10
-            )
+                    try:
+                        response = requests.post(
+                            N8N_WEBHOOK_URL, json=payload, timeout=10
+                        )
+                        print(
+                            f"[*] Отправлено в n8n ({event['status']}): {response.status_code}",
+                            flush=True,
+                        )
+                    except Exception as e:
+                        print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
+
+            last_filtered_data = current_filtered_data
+            save_state(raw_data)
+        else:
             print(
-                f"[*] Отправлено в n8n ({event['status']}): {response.status_code}",
+                f"[-] Изменений по Киеву и области нет ({get_adjusted_time().strftime('%H:%M:%S')})",
                 flush=True,
             )
-          except Exception as e:
-            print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
 
-        last_filtered_data = current_filtered_data
-        save_state(raw_data)
-      else:
-        print(
-            f"[-] Изменений по Киеву и области нет ({get_adjusted_time().strftime('%H:%M:%S')})",
-            flush=True,
-        )
-
-    time.sleep(CHECK_INTERVAL)
+        time.sleep(CHECK_INTERVAL)
 
 
 t = threading.Thread(target=background_worker, daemon=True)
@@ -152,9 +187,9 @@ t.start()
 
 @app.route("/")
 def home():
-  return "Alerts Poller is running!", 200
+    return "Alerts Poller is running!", 200
 
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 10000))
-  app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

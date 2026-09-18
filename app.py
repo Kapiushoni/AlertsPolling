@@ -14,7 +14,10 @@ CHECK_INTERVAL = 45
 STATE_FILE = "last_state.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
-N8N_WEBHOOK_URL = "https://alexn8n12345.app.n8n.cloud/webhook/air-alert"
+# Настройки Telegram бота из переменных окружения
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage" if TELEGRAM_BOT_TOKEN else None
 
 
 def get_adjusted_time():
@@ -118,6 +121,23 @@ def get_kyiv_active_alerts(raw_data):
     return active_kyiv_alerts
 
 
+def format_telegram_message(event):
+    """Форматирует событие тревоги в красивое текстовое сообщение для Telegram."""
+    lines = [f"<b>{event['title']}</b>", f"🕒 Время: <code>{get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"]
+    
+    for reg in event["regions"]:
+        region_name = reg.get("region", "Неизвестно")
+        lines.append(-f"📍 <b>{region_name}</b>")
+        if event["status"] == "started":
+            if "alert_level" in reg:
+                lines.append(f"   • Уровень: {reg['alert_level']}")
+            if "threats" in reg:
+                lines.append(f"   • Угроза: {reg['threats']}")
+        lines.append("") # пустая строка между регионами
+        
+    return "\n".join(lines)
+
+
 def background_worker():
     print("[*] Фоновый монитор alerts.in.ua запущен...", flush=True)
     last_filtered_data = get_kyiv_active_alerts(load_last_state())
@@ -158,23 +178,33 @@ def background_worker():
                     })
 
                 for event in events:
+                    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+                        print("[!] Ошибка: Не заданы TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID в переменных окружения!", flush=True)
+                        continue
+
+                    message_text = format_telegram_message(event)
                     payload = {
-                        "timestamp": get_adjusted_time().strftime("%Y-%m-%d %H:%M:%S"),
-                        "status": event["status"],
-                        "event_title": event["title"],
-                        "alerts": event["regions"],
+                        "chat_id": TELEGRAM_CHAT_ID,
+                        "text": message_text,
+                        "parse_mode": "HTML"
                     }
 
                     try:
                         response = requests.post(
-                            N8N_WEBHOOK_URL, json=payload, timeout=10
+                            TELEGRAM_API_URL, json=payload, timeout=10
                         )
-                        print(
-                            f"[*] Отправлено в n8n ({event['status']}): {response.status_code}",
-                            flush=True,
-                        )
+                        if response.status_code == 200:
+                            print(
+                                f"[*] Отправлено в Telegram ({event['status']}): Успешно",
+                                flush=True,
+                            )
+                        else:
+                            print(
+                                f"[!] Ошибка отправки в Telegram: {response.status_code} - {response.text}",
+                                flush=True,
+                            )
                     except Exception as e:
-                        print(f"[!] Ошибка отправки в n8n: {e}", flush=True)
+                        print(f"[!] Исключение при отправке в Telegram: {e}", flush=True)
 
             last_filtered_data = current_filtered_data
             save_state(raw_data)

@@ -229,7 +229,7 @@ def test_voice():
     voice_api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVoice"
 
     # Пряме посилання на ваш MP3 файл із GitHub (замініть на своє!)
-    audio_url = "https://raw.githubusercontent.com/Kapiushoni/AlertsPolling/main/gordon.MP3"
+    audio_url = "https://raw.githubusercontent.com/Kapiushoni/AlertsPolling/main/gordon.ogg"
 
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,

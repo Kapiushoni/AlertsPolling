@@ -121,7 +121,7 @@ def format_telegram_message(event):
     
     for reg in event["regions"]:
         region_name = reg.get("region", "Неизвестно")
-        lines.append(f"📍 <b>{region_name}</b>") # Виправлено мінус
+        lines.append(f"📍 <b>{region_name}</b>")
         if event["status"] == "started":
             if "alert_level" in reg:
                 lines.append(f"   • Уровень: {reg['alert_level']}")
@@ -134,7 +134,6 @@ def format_telegram_message(event):
 
 def background_worker():
     print("[*] Фоновый монитор alerts.in.ua запущен...", flush=True)
-    # Зберігаємо/завантажуємо відфільтрований стан для коректності
     last_filtered_data = load_last_state()
 
     while True:
@@ -202,7 +201,7 @@ def background_worker():
                         print(f"[!] Исключение при отправке в Telegram: {e}", flush=True)
 
                 last_filtered_data = current_filtered_data
-                save_state(current_filtered_data) # Зберігаємо відфільтрований словник
+                save_state(current_filtered_data)
         else:
             print(
                 f"[-] Изменений по Киеву и области нет ({get_adjusted_time().strftime('%H:%M:%S')})",
@@ -219,6 +218,41 @@ t.start()
 @app.route("/")
 def home():
     return "Alerts Poller is running!", 200
+
+
+@app.route("/test-alert")
+def test_alert():
+    """Тестовий роут для перевірки відправки сповіщень у Telegram."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return "Помилка: Не задані TELEGRAM_BOT_TOKEN або TELEGRAM_CHAT_ID", 400
+
+    fake_event = {
+        "status": "started",
+        "title": "🚨 ТЕСТОВА повітряна тривога!",
+        "regions": [
+            {
+                "region": "м. Київ",
+                "alert_level": "🔴 Червоний рівень",
+                "threats": "Дроны (БПЛА)"
+            }
+        ]
+    }
+
+    message_text = format_telegram_message(fake_event)
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message_text,
+        "parse_mode": "HTML"
+    }
+
+    try:
+        response = requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
+        if response.status_code == 200:
+            return "Тестове повідомлення успішно надіслано в Telegram!", 200
+        else:
+            return f"Помилка від Telegram API: {response.status_code} - {response.text}", 400
+    except Exception as e:
+        return f"Виняток при відправці: {e}", 500
 
 
 if __name__ == "__main__":

@@ -73,28 +73,28 @@ def get_kyiv_active_alerts(raw_data):
                 
                 raw_level = item.get("alert_level")
                 if raw_level == "yellow":
-                    level_display = "🟡 Желтый уровень"
+                    level_display = "🟡 Жовтий рівень"
                 elif raw_level == "red":
-                    level_display = "🔴 Красный уровень"
+                    level_display = "🔴 Червоний рівень"
                 elif raw_level:
-                    level_display = f"⚪ {raw_level} уровень"
+                    level_display = f"⚪ {raw_level} рівень"
                 else:
-                    level_display = "⚪ Уровень не указан"
+                    level_display = "⚪ Рівень не вказаний"
 
                 threats_data = item.get("threats", [])
                 threat_types = []
                 
                 threat_mapping = {
-                    "tactic_aircraft_activity": "Активность тактической авиации",
-                    "strategic_aircraft_activity": "Активность стратегической авиации",
-                    "mig31k_departure": "Взлёт МиГ-31К",
-                    "ballistic_missiles": "Баллистические ракеты",
-                    "cruise_missiles": "Крылатые ракеты",
-                    "unspecified_missiles": "Ракеты",
-                    "drones": "Дроны (БПЛА)",
-                    "guided_aerial_bombs": "Управляемые авиабомбы (КАБ)",
-                    "air_defense": "Работа ПВО",
-                    "unknown": "Неизвестная угроза"
+                    "tactic_aircraft_activity": "Активність тактичної авіації",
+                    "strategic_aircraft_activity": "Активність стратегічної авіації",
+                    "mig31k_departure": "Взліт Міг-31К",
+                    "ballistic_missiles": "Балістика",
+                    "cruise_missiles": "Крилаті ракети",
+                    "unspecified_missiles": "Ракети",
+                    "drones": "Дрони (БПЛА)",
+                    "guided_aerial_bombs": "КАБи",
+                    "air_defense": "Працює ППО",
+                    "unknown": "Невідома загроза"
                 }
                 
                 for t in threats_data:
@@ -102,7 +102,7 @@ def get_kyiv_active_alerts(raw_data):
                     if ttype:
                         threat_types.append(threat_mapping.get(ttype, ttype))
                 
-                threats_display = ", ".join(threat_types) if threat_types else "Неизвестная угроза"
+                threats_display = ", ".join(threat_types) if threat_types else "Невідома загроза"
 
                 active_kyiv_alerts[title] = {
                     "region": title,
@@ -117,16 +117,16 @@ def get_kyiv_active_alerts(raw_data):
 
 def format_telegram_message(event):
     """Форматирует событие тревоги в красивое текстовое сообщение для Telegram."""
-    lines = [f"<b>{event['title']}</b>", f"🕒 Время: <code>{get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"]
+    lines = [f"<b>{event['title']}</b>", f"🕒 <code>{get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"]
     
     for reg in event["regions"]:
-        region_name = reg.get("region", "Неизвестно")
+        region_name = reg.get("region", "Невідомо")
         lines.append(f"📍 <b>{region_name}</b>")
         if event["status"] == "started":
             if "alert_level" in reg:
-                lines.append(f"   • Уровень: {reg['alert_level']}")
+                lines.append(f"   • Рівень: {reg['alert_level']}")
             if "threats" in reg:
-                lines.append(f"   • Угроза: {reg['threats']}")
+                lines.append(f"   • Загроза: {reg['threats']}")
         lines.append("")
         
     return "\n".join(lines)
@@ -145,7 +145,7 @@ def background_worker():
             if current_filtered_data != last_filtered_data:
                 current_time_str = get_adjusted_time().strftime('%Y-%m-%d %H:%M:%S')
                 print(
-                    f"[*] Изменилась ситуация в Киеве и Киевской области! Время: {current_time_str}",
+                    f"[*] Змінилася ситуація в Києві та Області! Час: {current_time_str}",
                     flush=True,
                 )
 
@@ -220,35 +220,26 @@ def home():
     return "Alerts Poller is running!", 200
 
 
-@app.route("/test-alert")
-def test_alert():
-    """Тестовий роут для перевірки відправки сповіщень у Telegram."""
+@app.route("/test-voice")
+def test_voice():
+    """Тестовий роут для відправки вашого MP3 файлу як голосового в Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return "Помилка: Не задані TELEGRAM_BOT_TOKEN або TELEGRAM_CHAT_ID", 400
 
-    fake_event = {
-        "status": "started",
-        "title": "🚨 ТЕСТОВА повітряна тривога!",
-        "regions": [
-            {
-                "region": "м. Київ",
-                "alert_level": "🔴 Червоний рівень",
-                "threats": "Дроны (БПЛА)"
-            }
-        ]
-    }
+    voice_api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVoice"
 
-    message_text = format_telegram_message(fake_event)
+    # Пряме посилання на ваш MP3 файл із GitHub (замініть на своє!)
+    audio_url = "https://raw.githubusercontent.com/Kapiushoni/AlertsPolling/main/gordon.MP3"
+
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "text": message_text,
-        "parse_mode": "HTML"
+        "voice": audio_url,
     }
 
     try:
-        response = requests.post(TELEGRAM_API_URL, json=payload, timeout=10)
+        response = requests.post(voice_api_url, json=payload, timeout=15)
         if response.status_code == 200:
-            return "Тестове повідомлення успішно надіслано в Telegram!", 200
+            return "Голосове повідомлення успішно надіслано в Telegram!", 200
         else:
             return f"Помилка від Telegram API: {response.status_code} - {response.text}", 400
     except Exception as e:

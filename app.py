@@ -14,7 +14,6 @@ CHECK_INTERVAL = 45
 STATE_FILE = "last_state.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
-# Настройки Telegram бота из переменных окружения
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage" if TELEGRAM_BOT_TOKEN else None
@@ -72,7 +71,6 @@ def get_kyiv_active_alerts(raw_data):
 
             if "Київська область" in oblast or "Київська область" in title or "м. Київ" in title:
                 
-                # --- Обработка уровня тревоги ---
                 raw_level = item.get("alert_level")
                 if raw_level == "yellow":
                     level_display = "🟡 Желтый уровень"
@@ -83,11 +81,9 @@ def get_kyiv_active_alerts(raw_data):
                 else:
                     level_display = "⚪ Уровень не указан"
 
-                # --- Обработка типа угрозы согласно официальному enum ---
                 threats_data = item.get("threats", [])
                 threat_types = []
                 
-                # Точный маппинг из документации API
                 threat_mapping = {
                     "tactic_aircraft_activity": "Активность тактической авиации",
                     "strategic_aircraft_activity": "Активность стратегической авиации",
@@ -104,10 +100,8 @@ def get_kyiv_active_alerts(raw_data):
                 for t in threats_data:
                     ttype = t.get("threat_type")
                     if ttype:
-                        # Переводим, если есть в словаре, иначе оставляем как в API
                         threat_types.append(threat_mapping.get(ttype, ttype))
                 
-                # Если список угроз пустой, пишем, что угроза неизвестна
                 threats_display = ", ".join(threat_types) if threat_types else "Неизвестная угроза"
 
                 active_kyiv_alerts[title] = {
@@ -127,20 +121,21 @@ def format_telegram_message(event):
     
     for reg in event["regions"]:
         region_name = reg.get("region", "Неизвестно")
-        lines.append(-f"📍 <b>{region_name}</b>")
+        lines.append(f"📍 <b>{region_name}</b>") # Виправлено мінус
         if event["status"] == "started":
             if "alert_level" in reg:
                 lines.append(f"   • Уровень: {reg['alert_level']}")
             if "threats" in reg:
                 lines.append(f"   • Угроза: {reg['threats']}")
-        lines.append("") # пустая строка между регионами
+        lines.append("")
         
     return "\n".join(lines)
 
 
 def background_worker():
     print("[*] Фоновый монитор alerts.in.ua запущен...", flush=True)
-    last_filtered_data = get_kyiv_active_alerts(load_last_state())
+    # Зберігаємо/завантажуємо відфільтрований стан для коректності
+    last_filtered_data = load_last_state()
 
     while True:
         raw_data = fetch_alerts()
@@ -206,8 +201,8 @@ def background_worker():
                     except Exception as e:
                         print(f"[!] Исключение при отправке в Telegram: {e}", flush=True)
 
-            last_filtered_data = current_filtered_data
-            save_state(raw_data)
+                last_filtered_data = current_filtered_data
+                save_state(current_filtered_data) # Зберігаємо відфільтрований словник
         else:
             print(
                 f"[-] Изменений по Киеву и области нет ({get_adjusted_time().strftime('%H:%M:%S')})",

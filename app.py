@@ -222,26 +222,34 @@ def home():
 
 @app.route("/test-voice")
 def test_voice():
-    """Тестовий роут для відправки вашого MP3 файлу як голосового в Telegram."""
+    """Завантажує ogg-файл у пам'ять і відправляє як справжнє голосове повідомлення."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return "Помилка: Не задані TELEGRAM_BOT_TOKEN або TELEGRAM_CHAT_ID", 400
 
     voice_api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVoice"
-
-    # Пряме посилання на ваш MP3 файл із GitHub (замініть на своє!)
     audio_url = "https://raw.githubusercontent.com/Kapiushoni/AlertsPolling/main/gordon.ogg"
 
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "voice": audio_url,
-    }
-
     try:
-        response = requests.post(voice_api_url, json=payload, timeout=15)
+        # Завантажуємо файл у пам'ять сервера
+        file_response = requests.get(audio_url, timeout=15)
+        if file_response.status_code != 200:
+            return f"Не вдалося завантажити аудіо з GitHub: {file_response.status_code}", 400
+
+        # Відправляємо в Telegram як бінарний файл (це примусово робить його голосовим)
+        files = {
+            "voice": ("gordon.ogg", file_response.content, "audio/ogg")
+        }
+        data = {
+            "chat_id": TELEGRAM_CHAT_ID,
+        }
+
+        response = requests.post(voice_api_url, data=data, files=files, timeout=20)
+        
         if response.status_code == 200:
-            return "Голосове повідомлення успішно надіслано в Telegram!", 200
+            return "Голосове повідомлення успішно надіслано!", 200
         else:
             return f"Помилка від Telegram API: {response.status_code} - {response.text}", 400
+            
     except Exception as e:
         return f"Виняток при відправці: {e}", 500
 

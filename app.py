@@ -12,7 +12,7 @@ API_URL = "https://api.alerts.in.ua/v1/alerts/active.json"
 API_TOKEN = os.environ.get("ALERTS_API_TOKEN")
 CHECK_INTERVAL = 45
 STATE_FILE = "last_state.json"
-STATS_FILE = "daily_stats.json"  # Файл для збереження статистики за поточний день
+STATS_FILE = "daily_stats.json"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -41,7 +41,7 @@ def save_state(state):
 
 
 def load_daily_stats():
-    """Завантажує або ініціалізує статистику за день"""
+    """Завантажує або ініціалізує статистику за день тільки для м. Київ"""
     today_str = get_adjusted_time().strftime("%Y-%m-%d")
     if os.path.exists(STATS_FILE):
         try:
@@ -52,12 +52,13 @@ def load_daily_stats():
         except Exception:
             pass
     
-    # Якщо файлу немає або це новий день — створюємо порожню структуру
     return {
         "date": today_str,
-        "count": 0,
-        "total_duration_seconds": 0,
-        "active_alerts_tracker": {}  # Зберігає час початку {region: start_timestamp}
+        "red_count": 0,
+        "yellow_count": 0,
+        "red_duration_seconds": 0,
+        "yellow_duration_seconds": 0,
+        "active_alerts_tracker": {}  # Зберігає інформацію про активну тривогу: {region_title: {"start": iso_time, "level": level}}
     }
 
 
@@ -86,27 +87,31 @@ def fetch_alerts():
 
 
 def get_kyiv_active_alerts(raw_data):
-    """Возвращает словарь активных тревог Киева и Киевщины в формате {region_name: alert_info}"""
+    """Возвращает словарь активных тревог ТОЛЬКО для города Киев в формате {region_name: alert_info}"""
     if not raw_data or "alerts" not in raw_data:
         return {}
 
     active_kyiv_alerts = {}
     for item in raw_data["alerts"]:
         if item.get("alert_type") == "air_raid" and item.get("finished_at") is None:
-            oblast = item.get("location_oblast") or ""
             title = item.get("location_title") or ""
 
-            if "Київська область" in oblast or "Київська область" in title or "м. Київ" in title:
+            # Фільтруємо виключно місто Київ (ігноруємо Київську область)
+            if title == "м. Київ":
                 
                 raw_level = item.get("alert_level")
                 if raw_level == "yellow":
                     level_display = "🟡 Жовтий рівень"
+                    level_key = "yellow"
                 elif raw_level == "red":
                     level_display = "🔴 Червоний рівень"
+                    level_key = "red"
                 elif raw_level:
                     level_display = f"⚪ {raw_level} рівень"
+                    level_key = "other"
                 else:
                     level_display = "⚪ Рівень не вказаний"
+                    level_key = "other"
 
                 threats_data = item.get("threats", [])
                 threat_types = []
@@ -136,6 +141,7 @@ def get_kyiv_active_alerts(raw_data):
                     "type": item.get("location_type"),
                     "started_at": item.get("started_at"),
                     "alert_level": level_display,
+                    "level_key": level_key,  # Зберігаємо ключ рівня для статистики
                     "threats": threats_display
                 }
 
@@ -182,20 +188,29 @@ def send_telegram_message(message_text):
     return False
 
 
-def send_daily_report(stats):
-    """Формує та надсилає звіт за минулу добу"""
-    total_seconds = stats.get("total_duration_seconds", 0)
+def format_duration(total_seconds):
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
-    
+    return f"{hours} год. {minutes} хв."
+
+
+def send_daily_report(stats):
+    """Формує та надсилає звіт за минулу добу виключно по місту Київ"""
     report_date = stats.get("date", get_adjusted_time().strftime('%Y-%m-%d'))
+    
+    red_time_str = format_duration(stats.get("red_duration_seconds", 0))
+    yellow_time_str = format_duration(stats.get("yellow_duration_seconds", 0))
+    
+    total_seconds = stats.get("red_duration_seconds", 0) + stats.get("yellow_duration_seconds", 0)
+    total_time_str = format_duration(total_seconds)
     
     text = (
         f"📊 <b>Статистика повітряних тривог за добу</b>\n"
         f"📅 Дата: <code>{report_date}</code>\n"
-        f"📍 Регіон: <b>Київ та Київська область</b>\n\n"
-        f"🚨 Кількість тривог: <b>{stats.get('count', 0)}</b>\n"
-        f"⏳ Сумарний час тривог: <b>{hours} год. {minutes} хв.</b>"
+        f"📍 Регіон: <b>м. Київ</b>\n\n"
+        f"🔴 Червоних тривог: <b>{stats.get('red_count', 0)}</b> (Час: {red_time_str})\n"
+        f"🟡 Жовтих тривог: <b>{stats.get('yellow_count', 0)}</b> (Час: {yellow_time_str})\n\n"
+        f"⏳ Сумарний час усіх тривог: <b>{total_time_str}</b>"
     )
     
     print(f"[*] Відправляємо нічний звіт за {report_date}...", flush=True)
@@ -211,32 +226,24 @@ def background_worker():
         now = get_adjusted_time()
         current_date_str = now.strftime("%Y-%m-%d")
 
-        # Перевірка на зміну доби (якщо настав новий день, надсилаємо звіт за вчора)
+        # Перевірка на зміну доби
         if daily_stats.get("date") != current_date_str:
-            # Закриваємо активні тривоги перед зміною дня, щоб зарахувати час до кінця доби
-            for region in list(daily_stats["active_alerts_tracker"].keys()):
-                start_str = daily_stats["active_alerts_tracker"][region]
-                try:
-                    start_dt = datetime.datetime.fromisoformat(start_str)
-                    # Вважаємо тривалість до 00:00 нового дня
-                    midnight_dt = datetime.datetime.combine(now.date(), datetime.time.min) # це вже новий день, тому беремо вчорашню північ
-                    # Простіше: вважаємо до поточного часу або кінця доби
-                except Exception:
-                    pass
-            
-            # Надсилаємо звіт
             send_daily_report(daily_stats)
             
-            # Скидаємо статистику на новий день
             daily_stats = {
                 "date": current_date_str,
-                "count": 0,
-                "total_duration_seconds": 0,
+                "red_count": 0,
+                "yellow_count": 0,
+                "red_duration_seconds": 0,
+                "yellow_duration_seconds": 0,
                 "active_alerts_tracker": {}
             }
-            # Якщо в цей момент у Києві горять тривоги, переносимо їх на новий день
-            for region in last_filtered_data.keys():
-                daily_stats["active_alerts_tracker"][region] = now.isoformat()
+            # Якщо тривога триває у новий день, переносимо її
+            for region, info in last_filtered_data.items():
+                daily_stats["active_alerts_tracker"][region] = {
+                    "start": now.isoformat(),
+                    "level_key": info.get("level_key", "red")
+                }
             save_daily_stats(daily_stats)
 
         raw_data = fetch_alerts()
@@ -247,7 +254,7 @@ def background_worker():
             if current_filtered_data != last_filtered_data:
                 current_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
                 print(
-                    f"[*] Змінилася ситуація в Києві та Області! Час: {current_time_str}",
+                    f"[*] Змінилася ситуація в місті Київ! Час: {current_time_str}",
                     flush=True,
                 )
 
@@ -265,10 +272,17 @@ def background_worker():
                         "title": "🚨 Повітряна тривога!",
                         "regions": [current_filtered_data[r] for r in started_regions],
                     })
-                    # Оновлюємо статистику (збільшуємо лічильник тривог та фіксуємо час початку)
-                    daily_stats["count"] += len(started_regions)
                     for r in started_regions:
-                        daily_stats["active_alerts_tracker"][r] = now.isoformat()
+                        level_key = current_filtered_data[r].get("level_key", "red")
+                        if level_key == "yellow":
+                            daily_stats["yellow_count"] += 1
+                        else:
+                            daily_stats["red_count"] += 1
+                            
+                        daily_stats["active_alerts_tracker"][r] = {
+                            "start": now.isoformat(),
+                            "level_key": level_key
+                        }
 
                 if ended_regions:
                     events.append({
@@ -276,13 +290,19 @@ def background_worker():
                         "title": "✅ Відбій тривоги!",
                         "regions": [{"region": r} for r in ended_regions],
                     })
-                    # Рахуємо тривалість закінчених тривог
                     for r in ended_regions:
                         if r in daily_stats["active_alerts_tracker"]:
                             try:
-                                start_dt = datetime.datetime.fromisoformat(daily_stats["active_alerts_tracker"][r])
-                                duration = (now - start_dt).total_seconds()
-                                daily_stats["total_duration_seconds"] += int(duration)
+                                tracker_info = daily_stats["active_alerts_tracker"][r]
+                                start_dt = datetime.datetime.fromisoformat(tracker_info["start"])
+                                duration = int((now - start_dt).total_seconds())
+                                level_key = tracker_info.get("level_key", "red")
+                                
+                                if level_key == "yellow":
+                                    daily_stats["yellow_duration_seconds"] += duration
+                                else:
+                                    daily_stats["red_duration_seconds"] += duration
+                                    
                                 del daily_stats["active_alerts_tracker"][r]
                             except Exception as e:
                                 print(f"[!] Помилка розрахунку часу тривалості: {e}", flush=True)
@@ -299,7 +319,7 @@ def background_worker():
                 save_state(current_filtered_data)
         else:
             print(
-                f"[-] Изменений по Киеву и области нет ({now.strftime('%H:%M:%S')})",
+                f"[-] Изменений по Киеву нет ({now.strftime('%H:%M:%S')})",
                 flush=True,
             )
 

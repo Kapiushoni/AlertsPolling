@@ -58,7 +58,7 @@ def load_daily_stats():
         "yellow_count": 0,
         "red_duration_seconds": 0,
         "yellow_duration_seconds": 0,
-        "active_alerts_tracker": {}  # Зберігає інформацію про активну тривогу: {region_title: {"start": iso_time, "level": level}}
+        "active_alerts_tracker": {}
     }
 
 
@@ -96,9 +96,7 @@ def get_kyiv_active_alerts(raw_data):
         if item.get("alert_type") == "air_raid" and item.get("finished_at") is None:
             title = item.get("location_title") or ""
 
-            # Фільтруємо виключно місто Київ (ігноруємо Київську область)
             if title == "м. Київ":
-                
                 raw_level = item.get("alert_level")
                 if raw_level == "yellow":
                     level_display = "🟡 Жовтий рівень"
@@ -141,7 +139,7 @@ def get_kyiv_active_alerts(raw_data):
                     "type": item.get("location_type"),
                     "started_at": item.get("started_at"),
                     "alert_level": level_display,
-                    "level_key": level_key,  # Зберігаємо ключ рівня для статистики
+                    "level_key": level_key,
                     "threats": threats_display
                 }
 
@@ -228,22 +226,41 @@ def background_worker():
 
         # Перевірка на зміну доби
         if daily_stats.get("date") != current_date_str:
+            yesterday_midnight = datetime.datetime.combine(now.date(), datetime.time.min) # Рівно 00:00 нового дня
+            
+            # Дораховуємо час вчорашньої тривоги до кінця доби (до 00:00)
+            for region, tracker_info in list(daily_stats["active_alerts_tracker"].items()):
+                try:
+                    start_dt = datetime.datetime.fromisoformat(tracker_info["start"])
+                    if start_dt < yesterday_midnight:
+                        duration = int((yesterday_midnight - start_dt).total_seconds())
+                        level_key = tracker_info.get("level_key", "red")
+                        if level_key == "yellow":
+                            daily_stats["yellow_duration_seconds"] += duration
+                        else:
+                            daily_stats["red_duration_seconds"] += duration
+                except Exception as e:
+                    print(f"[!] Помилка розрахунку нічного переходу тривалості: {e}", flush=True)
+
+            # Надсилаємо звіт за вчора
             send_daily_report(daily_stats)
             
+            # Переносимо активні тривоги на новий день, встановлюючи час початку рівно на 00:00
+            new_active_tracker = {}
+            for region, info in last_filtered_data.items():
+                new_active_tracker[region] = {
+                    "start": yesterday_midnight.isoformat(),
+                    "level_key": info.get("level_key", "red")
+                }
+
             daily_stats = {
                 "date": current_date_str,
                 "red_count": 0,
                 "yellow_count": 0,
                 "red_duration_seconds": 0,
                 "yellow_duration_seconds": 0,
-                "active_alerts_tracker": {}
+                "active_alerts_tracker": new_active_tracker
             }
-            # Якщо тривога триває у новий день, переносимо її
-            for region, info in last_filtered_data.items():
-                daily_stats["active_alerts_tracker"][region] = {
-                    "start": now.isoformat(),
-                    "level_key": info.get("level_key", "red")
-                }
             save_daily_stats(daily_stats)
 
         raw_data = fetch_alerts()
